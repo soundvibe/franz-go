@@ -1,6 +1,7 @@
 package kgo
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -1475,9 +1476,12 @@ func (o *cursorOffsetNext) processRecordBatch(
 
 	rawRecords := batch.Records
 
+	var out *bytes.Buffer
+
 	if compression := byte(batch.Attributes & 0x0007); compression != 0 {
 		var err error
-		if rawRecords, err = decompressor.decompress(rawRecords, compression); err != nil {
+		out = byteBuffers.Get().(*bytes.Buffer)
+		if rawRecords, err = decompressor.decompress(rawRecords, out, compression); err != nil {
 			return 0, 0 // truncated batch
 		}
 	}
@@ -1486,6 +1490,7 @@ func (o *cursorOffsetNext) processRecordBatch(
 
 	numRecords := int(batch.NumRecords)
 	krecords := readRawRecords(numRecords, rawRecords)
+	byteBuffers.Put(out)
 
 	// KAFKA-5443: compacted topics preserve the last offset in a batch,
 	// even if the last record is removed, meaning that using offsets from
@@ -1543,11 +1548,12 @@ func (o *cursorOffsetNext) processV1OuterMessage(
 		return 1, 0
 	}
 
-	rawInner, err := decompressor.decompress(message.Value, compression)
+	out := byteBuffers.Get().(*bytes.Buffer)
+	rawInner, err := decompressor.decompress(message.Value, out, compression)
 	if err != nil {
 		return 0, 0 // truncated batch
 	}
-
+	defer byteBuffers.Put(out)
 	uncompressedBytes := len(rawInner)
 
 	var innerMessages []readerFrom
@@ -1653,11 +1659,12 @@ func (o *cursorOffsetNext) processV0OuterMessage(
 		o.processV0Message(fp, message)
 		return 1, 0 // uncompressed bytes is 0; set to compressed bytes on return
 	}
-
-	rawInner, err := decompressor.decompress(message.Value, compression)
+	out := byteBuffers.Get().(*bytes.Buffer)
+	rawInner, err := decompressor.decompress(message.Value, out, compression)
 	if err != nil {
 		return 0, 0 // truncated batch
 	}
+	defer byteBuffers.Put(rawInner)
 	uncompressedBytes := len(rawInner)
 
 	var innerMessages []kmsg.MessageV0

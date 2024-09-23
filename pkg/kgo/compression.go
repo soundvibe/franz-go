@@ -264,15 +264,13 @@ type zstdDecoder struct {
 	inner *zstd.Decoder
 }
 
-func (d *decompressor) decompress(src []byte, codec byte) ([]byte, error) {
+func (d *decompressor) decompress(src []byte, out *bytes.Buffer, codec byte) ([]byte, error) {
 	// Early return in case there is no compression
 	compCodec := codecType(codec)
 	if compCodec == codecNone {
 		return src, nil
 	}
-	out := byteBuffers.Get().(*bytes.Buffer)
 	out.Reset()
-	defer byteBuffers.Put(out)
 
 	switch compCodec {
 	case codecGzip:

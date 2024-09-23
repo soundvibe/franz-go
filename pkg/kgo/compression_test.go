@@ -104,13 +104,15 @@ func TestCompressDecompress(t *testing.T) {
 					wg.Add(1)
 					go func() {
 						w := byteBuffers.Get().(*bytes.Buffer)
+						r := byteBuffers.Get().(*bytes.Buffer)
 						defer wg.Done()
 						defer byteBuffers.Put(w)
+						defer byteBuffers.Put(r)
 						for _, in := range inputs {
 							w.Reset()
 
 							got, used := c.compress(w, in, produceVersion)
-							got, err := d.decompress(got, byte(used))
+							got, err := d.decompress(got, r, byte(used))
 							if err != nil {
 								t.Errorf("unexpected decompress err: %v", err)
 								return
@@ -156,7 +158,7 @@ func BenchmarkDecompress(b *testing.B) {
 		b.Run(fmt.Sprint(codec), func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				d := newDecompressor()
-				d.decompress(w.Bytes(), byte(codec))
+				d.decompress(w.Bytes(), w, byte(codec))
 			}
 		})
 		byteBuffers.Put(w)
