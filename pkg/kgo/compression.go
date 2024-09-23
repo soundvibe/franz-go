@@ -272,7 +272,7 @@ func (d *decompressor) decompress(src []byte, codec byte) ([]byte, error) {
 	}
 	out := byteBuffers.Get().(*bytes.Buffer)
 	out.Reset()
-	//defer byteBuffers.Put(out)
+	defer byteBuffers.Put(out)
 
 	switch compCodec {
 	case codecGzip:
