@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"sync"
 	"time"
 	"unsafe"
 )
@@ -149,6 +150,13 @@ type Record struct {
 	// producer hooks. It can also be set in a consumer hook to propagate
 	// enrichment to consumer clients.
 	Context context.Context
+
+	pool *recordPool
+}
+
+// Close returns record to the pool for reuse.
+func (r *Record) Close() {
+	r.pool.put(r)
 }
 
 func (r *Record) userSize() int64 {
@@ -625,4 +633,27 @@ func (r *FetchTopicPartition) EachRecord(fn func(*Record)) {
 	for _, r := range r.Records {
 		fn(r)
 	}
+}
+
+type recordPool struct{ p *sync.Pool }
+
+func newRecordPool() *recordPool {
+	return &recordPool{
+		p: &sync.Pool{New: func() any { return &Record{} }},
+	}
+}
+
+func (p *recordPool) get() *Record {
+	if p.p == nil {
+		return &Record{}
+	}
+	return p.p.Get().(*Record)
+}
+
+func (p *recordPool) put(r *Record) {
+	if p.p == nil {
+		return
+	}
+	*r = Record{}
+	p.p.Put(r)
 }

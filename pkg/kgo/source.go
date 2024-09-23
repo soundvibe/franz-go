@@ -11,9 +11,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/twmb/franz-go/pkg/kmsg"
+
 	"github.com/twmb/franz-go/pkg/kbin"
 	"github.com/twmb/franz-go/pkg/kerr"
-	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
 type readerFrom interface {
@@ -1068,7 +1069,7 @@ func (s *source) handleReqResp(br *broker, req *fetchRequest, resp *kmsg.FetchRe
 				continue
 			}
 
-			fp := partOffset.processRespPartition(br, rp, s.cl.decompressor, s.cl.cfg.hooks)
+			fp := partOffset.processRespPartition(br, rp, s.cl.decompressor, s.cl.cfg.hooks, s.cl.recordPool)
 			if fp.Err != nil {
 				if moving := kmove.maybeAddFetchPartition(resp, rp, partOffset.from); moving {
 					strip(topic, partition, fp.Err)
@@ -1245,7 +1246,7 @@ func (s *source) handleReqResp(br *broker, req *fetchRequest, resp *kmsg.FetchRe
 
 // processRespPartition processes all records in all potentially compressed
 // batches (or message sets).
-func (o *cursorOffsetNext) processRespPartition(br *broker, rp *kmsg.FetchResponseTopicPartition, decompressor *decompressor, hooks hooks) FetchPartition {
+func (o *cursorOffsetNext) processRespPartition(br *broker, rp *kmsg.FetchResponseTopicPartition, decompressor *decompressor, hooks hooks, recordPool *recordPool) FetchPartition {
 	fp := FetchPartition{
 		Partition:        rp.Partition,
 		Err:              kerr.ErrorForCode(rp.ErrorCode),
@@ -1377,7 +1378,7 @@ func (o *cursorOffsetNext) processRespPartition(br *broker, rp *kmsg.FetchRespon
 		case *kmsg.RecordBatch:
 			m.CompressedBytes = len(t.Records) // for record batches, we only track the record batch length
 			m.CompressionType = uint8(t.Attributes) & 0b0000_0111
-			m.NumRecords, m.UncompressedBytes = o.processRecordBatch(&fp, t, aborter, decompressor)
+			m.NumRecords, m.UncompressedBytes = o.processRecordBatch(&fp, t, aborter, decompressor, recordPool)
 		}
 
 		if m.UncompressedBytes == 0 {
@@ -1458,6 +1459,7 @@ func (o *cursorOffsetNext) processRecordBatch(
 	batch *kmsg.RecordBatch,
 	aborter aborter,
 	decompressor *decompressor,
+	recordPool *recordPool,
 ) (int, int) {
 	if batch.Magic != 2 {
 		fp.Err = fmt.Errorf("unknown batch magic %d", batch.Magic)
@@ -1508,6 +1510,7 @@ func (o *cursorOffsetNext) processRecordBatch(
 			fp.Partition,
 			batch,
 			&krecords[i],
+			recordPool,
 		)
 		o.maybeKeepRecord(fp, record, abortBatch)
 
@@ -1748,12 +1751,7 @@ func timeFromMillis(millis int64) time.Time {
 }
 
 // recordToRecord converts a kmsg.RecordBatch's Record to a kgo Record.
-func recordToRecord(
-	topic string,
-	partition int32,
-	batch *kmsg.RecordBatch,
-	record *kmsg.Record,
-) *Record {
+func recordToRecord(topic string, partition int32, batch *kmsg.RecordBatch, record *kmsg.Record, pool *recordPool) *Record {
 	h := make([]RecordHeader, 0, len(record.Headers))
 	for _, kv := range record.Headers {
 		h = append(h, RecordHeader{
@@ -1762,18 +1760,18 @@ func recordToRecord(
 		})
 	}
 
-	r := &Record{
-		Key:           record.Key,
-		Value:         record.Value,
-		Headers:       h,
-		Topic:         topic,
-		Partition:     partition,
-		Attrs:         RecordAttrs{uint8(batch.Attributes)},
-		ProducerID:    batch.ProducerID,
-		ProducerEpoch: batch.ProducerEpoch,
-		LeaderEpoch:   batch.PartitionLeaderEpoch,
-		Offset:        batch.FirstOffset + int64(record.OffsetDelta),
-	}
+	r := pool.get()
+	r.Key = record.Key
+	r.Value = record.Value
+	r.Headers = h
+	r.Topic = topic
+	r.Partition = partition
+	r.Attrs = RecordAttrs{uint8(batch.Attributes)}
+	r.ProducerID = batch.ProducerID
+	r.ProducerEpoch = batch.ProducerEpoch
+	r.LeaderEpoch = batch.PartitionLeaderEpoch
+	r.Offset = batch.FirstOffset + int64(record.OffsetDelta)
+	r.pool = pool
 	if r.Attrs.TimestampType() == 0 {
 		r.Timestamp = timeFromMillis(batch.FirstTimestamp + record.TimestampDelta64)
 	} else {

@@ -14,7 +14,7 @@ import (
 	"github.com/pierrec/lz4/v4"
 )
 
-var byteBuffers = sync.Pool{New: func() any { return bytes.NewBuffer(make([]byte, 8<<10)) }}
+var byteBuffers = sync.Pool{New: func() any { return bytes.NewBuffer(make([]byte, 64<<10)) }}
 
 type codecType int8
 

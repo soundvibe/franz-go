@@ -24,8 +24,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kmsg"
+
+	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/sasl"
 )
 
@@ -74,6 +75,8 @@ type Client struct {
 		done chan struct{}
 		err  error
 	}
+
+	recordPool *recordPool
 
 	producer producer
 	consumer consumer
@@ -461,6 +464,8 @@ func NewClient(opts ...Opt) (*Client, error) {
 		opts:      opts,
 		ctx:       ctx,
 		ctxCancel: cancel,
+
+		recordPool: newRecordPool(),
 
 		rng: func() func(func(*rand.Rand)) {
 			var mu sync.Mutex
