@@ -269,6 +269,15 @@ type FetchPartition struct {
 	LogStartOffset int64
 	// Records contains feched records for this partition.
 	Records []*Record
+
+	closeFn func()
+}
+
+// Close calls closer function.
+func (p *FetchPartition) Close() {
+	if p.closeFn != nil {
+		p.closeFn()
+	}
 }
 
 // EachRecord calls fn for each record in the partition.
