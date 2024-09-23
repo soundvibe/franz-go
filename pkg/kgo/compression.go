@@ -246,7 +246,7 @@ func newDecompressor() *decompressor {
 		unzstdPool: sync.Pool{
 			New: func() any {
 				zstdDec, _ := zstd.NewReader(nil,
-					zstd.WithDecoderLowmem(true),
+					zstd.WithDecoderLowmem(false),
 					zstd.WithDecoderConcurrency(1),
 				)
 				r := &zstdDecoder{zstdDec}
@@ -272,7 +272,7 @@ func (d *decompressor) decompress(src []byte, codec byte) ([]byte, error) {
 	}
 	out := byteBuffers.Get().(*bytes.Buffer)
 	out.Reset()
-	defer byteBuffers.Put(out)
+	//defer byteBuffers.Put(out)
 
 	switch compCodec {
 	case codecGzip:
@@ -284,7 +284,7 @@ func (d *decompressor) decompress(src []byte, codec byte) ([]byte, error) {
 		if _, err := io.Copy(out, ungz); err != nil {
 			return nil, err
 		}
-		return append([]byte(nil), out.Bytes()...), nil
+		return out.Bytes(), nil
 	case codecSnappy:
 		if len(src) > 16 && bytes.HasPrefix(src, xerialPfx) {
 			return xerialDecode(src)
@@ -293,7 +293,7 @@ func (d *decompressor) decompress(src []byte, codec byte) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		return append([]byte(nil), decoded...), nil
+		return decoded, nil
 	case codecLZ4:
 		unlz4 := d.unlz4Pool.Get().(*lz4.Reader)
 		defer d.unlz4Pool.Put(unlz4)
@@ -301,7 +301,7 @@ func (d *decompressor) decompress(src []byte, codec byte) ([]byte, error) {
 		if _, err := io.Copy(out, unlz4); err != nil {
 			return nil, err
 		}
-		return append([]byte(nil), out.Bytes()...), nil
+		return out.Bytes(), nil
 	case codecZstd:
 		unzstd := d.unzstdPool.Get().(*zstdDecoder)
 		defer d.unzstdPool.Put(unzstd)
@@ -309,7 +309,7 @@ func (d *decompressor) decompress(src []byte, codec byte) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		return append([]byte(nil), decoded...), nil
+		return decoded, nil
 	default:
 		return nil, errors.New("unknown compression codec")
 	}
